@@ -1,0 +1,39 @@
+<configuration scan="true" scanPeriod="30 seconds">
+    <property name="LOGROOT" value="/var/log"/>
+    <property name="MODULENAME" value="string-attribute-service"/>
+    <property name="FILENAME" value="${LOGROOT}/${MODULENAME}/${MODULENAME}"/>
+    <jmxConfigurator/>
+
+    <appender name="MainAppender" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${FILENAME}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- daily rollover -->
+            <fileNamePattern>${FILENAME}.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <!-- keep 30 days' worth of history -->
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>GID:%X{gameId} TID:%X{transactionId} %date [%level] %logger{10} [%file:%line] %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="ConsoleAppender" class="ch.qos.logback.core.ConsoleAppender">
+        <!-- encoders are assigned the type ch.qos.logback.classic.encoder.PatternLayoutEncoder by default -->
+        <encoder>
+            <pattern>GID:%X{gameId} TID:%X{transactionId} %date [%level] %logger{10} [%file:%line] %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- <logger name="net.rubyeye.xmemcached.impl" level="info"/>
+    <logger name="com.google.code.yanf4j.core.impl" level="info"/>
+	<logger name="com.google.code.yanf4j.core.impl.AbstractSession" level="error"/>
+	<logger name="net.rubyeye.xmemcached.impl.MemcachedHandler" level="error"/>
+	<logger name="net.rubyeye.xmemcached.impl.Optimizer" level="error"/>
+
+	<logger name="com.codahale.STATS.graphite.GraphiteReporter" level="ERROR" /> -->
+
+    <root level="info">
+        <appender-ref ref="ConsoleAppender"/>
+        <appender-ref ref="MainAppender"/>
+    </root>
+</configuration>
