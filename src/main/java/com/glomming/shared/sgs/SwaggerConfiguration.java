@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 @EnableSwagger
-@ComponentScan("com.glomming.shared.drs.controller")
+@ComponentScan("com.glomming.shared.sgs.controller")
 public class SwaggerConfiguration {
 
   private SpringSwaggerConfig springSwaggerConfig;

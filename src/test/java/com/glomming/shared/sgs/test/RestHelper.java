@@ -14,7 +14,7 @@ import java.util.List;
 public class RestHelper extends AbstractIntegrationTest {
 
   protected MockHttpServletRequestBuilder prepareCreateRequest(String id, String attributes) throws Exception {
-    MockHttpServletRequestBuilder request = MockMvcRequestBuilders.post("/drs/v1/" + RedisGroupServiceController.GROUP + "/create");
+    MockHttpServletRequestBuilder request = MockMvcRequestBuilders.post("/sgs/v1/" + RedisGroupServiceController.GROUP + "/create");
     request.param("gameId", APPID);
     request.param("id", id);
     setJsonString(request, attributes);
@@ -22,7 +22,7 @@ public class RestHelper extends AbstractIntegrationTest {
   }
 
   protected MockHttpServletRequestBuilder prepareUpdateRequest(String id, String attributes) throws Exception {
-    MockHttpServletRequestBuilder request = MockMvcRequestBuilders.put("/drs/v1/" + RedisGroupServiceController.GROUP + "/update");
+    MockHttpServletRequestBuilder request = MockMvcRequestBuilders.put("/sgs/v1/" + RedisGroupServiceController.GROUP + "/update");
     request.param("gameId", APPID);
     request.param("id", id);
     setJsonString(request, attributes);
@@ -36,7 +36,7 @@ public class RestHelper extends AbstractIntegrationTest {
     }
     if (sb.length() > 2)
       sb.deleteCharAt(sb.length() - 1);
-    MockHttpServletRequestBuilder request = MockMvcRequestBuilders.get("/drs/v1/" + RedisGroupServiceController.GROUP + "/read");
+    MockHttpServletRequestBuilder request = MockMvcRequestBuilders.get("/sgs/v1/" + RedisGroupServiceController.GROUP + "/read");
     request.param("gameId", APPID);
     request.param("id", id);
     request.param(null, sb.toString());
@@ -44,7 +44,7 @@ public class RestHelper extends AbstractIntegrationTest {
   }
 
   protected MockHttpServletRequestBuilder prepareReadAllRequest(String id) throws JSONException {
-    MockHttpServletRequestBuilder request = MockMvcRequestBuilders.get("/drs/v1/" + RedisGroupServiceController.GROUP + "/read/all");
+    MockHttpServletRequestBuilder request = MockMvcRequestBuilders.get("/sgs/v1/" + RedisGroupServiceController.GROUP + "/read/all");
     request.param("gameId", APPID);
     request.param("id", id);
     return request;
@@ -58,7 +58,7 @@ public class RestHelper extends AbstractIntegrationTest {
     }
     if (sb.length() > 2)
       sb.deleteCharAt(sb.length() - 1);
-    MockHttpServletRequestBuilder request = MockMvcRequestBuilders.delete("/drs/v1/" + RedisGroupServiceController.GROUP + "/delete");
+    MockHttpServletRequestBuilder request = MockMvcRequestBuilders.delete("/sgs/v1/" + RedisGroupServiceController.GROUP + "/delete");
     request.param("gameId", APPID);
     request.param("id", id);
     request.param(null, sb.toString());
@@ -66,7 +66,7 @@ public class RestHelper extends AbstractIntegrationTest {
   }
 
   protected MockHttpServletRequestBuilder prepareDeleteAllRequest(String id) throws JSONException {
-    MockHttpServletRequestBuilder request = MockMvcRequestBuilders.delete("/drs/v1/" + RedisGroupServiceController.GROUP + "/delete/all");
+    MockHttpServletRequestBuilder request = MockMvcRequestBuilders.delete("/sgs/v1/" + RedisGroupServiceController.GROUP + "/delete/all");
     request.param("gameId", APPID);
     request.param("id", id);
     return request;

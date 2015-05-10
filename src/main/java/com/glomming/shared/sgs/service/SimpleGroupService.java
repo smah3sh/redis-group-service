@@ -3,32 +3,17 @@ package com.glomming.shared.sgs.service;
 import com.glomming.shared.sgs.bean.*;
 import com.glomming.shared.sgs.exception.*;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-import redis.clients.jedis.JedisCluster;
-import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.ScanParams;
 import redis.clients.jedis.ScanResult;
 
 import java.text.ParseException;
 import java.util.*;
 
 @Component
-public class SimpleGroupService {
+public class SimpleGroupService extends BaseGroupService {
 
   private static final org.slf4j.Logger logger = LoggerFactory.getLogger(SimpleGroupService.class);
-
-  @Autowired
-  @Qualifier(value = "redis_cluster")
-  private JedisCluster redisCluster;
-
-  public static final String RedisOk = "OK";
-
-  public JedisCluster getRedisCluster() {
-    return this.redisCluster;
-  }
 
   /**
    * Create group
@@ -55,7 +40,7 @@ public class SimpleGroupService {
     if (result > 0) {
       // Continue with group creation
       Group group = new Group(groupId, appName, groupName, maxSize, ownerId, groupJoinState, now, now);
-      createGroupResult = redisCluster.hmset(groupId, group.toMap());
+      createGroupResult = jedisCluster.hmset(groupId, group.toMap());
       // Set first group member
       this.addGroupMember(groupId, ownerId);
       if (createGroupResult.equals(RedisOk))
@@ -81,9 +66,9 @@ public class SimpleGroupService {
       }
       // Now remove set of users
       String key = SetGroupMembers.getKey(groupId);
-      redisCluster.del(key);
+      jedisCluster.del(key);
       // Remove the group
-      redisCluster.del(groupId);
+      jedisCluster.del(groupId);
     }
   }
 
@@ -94,7 +79,7 @@ public class SimpleGroupService {
    */
   public Set<String> getMembersByGroup(String groupId) {
     String key = SetGroupMembers.getKey(groupId);
-    return redisCluster.smembers(key);
+    return jedisCluster.smembers(key);
   }
 
 
@@ -104,9 +89,13 @@ public class SimpleGroupService {
    * @param cursor
    * @return
    */
-  public ScanResult<String> getPaginatedMembers(String groupId, String cursor) {
+  public ResultWithCursor<String> getPaginatedMembers(String groupId, String cursor) {
     String key = SetGroupMembers.getKey(groupId);
-    return redisCluster.sscan(key, cursor);
+    ScanResult<String> scanResult = jedisCluster.sscan(key, cursor);
+    ResultWithCursor<String> resultWithCursor = new ResultWithCursor<>();
+    resultWithCursor.cursor = scanResult.getStringCursor();
+    resultWithCursor.results = scanResult.getResult();
+    return resultWithCursor;
   }
 
   /**
@@ -118,7 +107,7 @@ public class SimpleGroupService {
    */
   public long mapGroupIdByName(String appName, String groupName, String groupId) {
     String groupIdByNameKey = GroupIdByName.getKey(appName);
-    Long result = redisCluster.hsetnx(groupIdByNameKey, groupName, groupId);
+    Long result = jedisCluster.hsetnx(groupIdByNameKey, groupName, groupId);
     return result;
   }
 
@@ -130,7 +119,7 @@ public class SimpleGroupService {
    */
   public void unmapGroupIdByName(String appName, String groupName) {
     String groupIdByNameKey = GroupIdByName.getKey(appName);
-    redisCluster.hdel(groupIdByNameKey, groupName);
+    jedisCluster.hdel(groupIdByNameKey, groupName);
   }
 
   /**
@@ -143,7 +132,7 @@ public class SimpleGroupService {
   public Group findGroup(String appName, String groupName) throws InvalidGroupException {
     // Get groupId by appName and groupName
     String groupIdByNameKey = GroupIdByName.getKey(appName);
-    String groupId = redisCluster.hget(groupIdByNameKey, groupName);
+    String groupId = jedisCluster.hget(groupIdByNameKey, groupName);
     if (StringUtils.isEmpty(groupId)) {
       return null;
     }
@@ -156,7 +145,7 @@ public class SimpleGroupService {
    * @return
    */
   public Group findGroup(String groupId) throws InvalidGroupException {
-    Map<String, String> groupMap = redisCluster.hgetAll(Group.getKey(groupId));
+    Map<String, String> groupMap = jedisCluster.hgetAll(Group.getKey(groupId));
     Group group = null;
     try {
       if (!groupMap.isEmpty()) {
@@ -187,7 +176,7 @@ public class SimpleGroupService {
         Map<String, String> updates = new HashMap<>();
         updates.put(Group.NAME, newName);
         updates.put(Group.LAST_UPDATED, Group.dateFormat.format(Calendar.getInstance().getTime()));
-        updateNameResult = redisCluster.hmset(groupId, updates);
+        updateNameResult = jedisCluster.hmset(groupId, updates);
       } else {
         throw new InvalidGroupNameException("", "GroupName already taken : " + newName);
       }
@@ -205,7 +194,7 @@ public class SimpleGroupService {
     Map<String, String> updates = new HashMap<>();
     updates.put(Group.OWNER_ID, newOwnerId);
     updates.put(Group.LAST_UPDATED, Group.dateFormat.format(Calendar.getInstance().getTime()));
-    String result = redisCluster.hmset(groupId, updates);
+    String result = jedisCluster.hmset(groupId, updates);
     return result;
   }
 
@@ -222,7 +211,7 @@ public class SimpleGroupService {
       Map<String, String> updates = new HashMap<>();
       updates.put(Group.MAX_SIZE, Long.toString(newMaxSize));
       updates.put(Group.LAST_UPDATED, Group.dateFormat.format(Calendar.getInstance().getTime()));
-      result = redisCluster.hmset(groupId, updates);
+      result = jedisCluster.hmset(groupId, updates);
     } else {
       throw new InvalidParameterException("", "Max size cannot be lower than number of members :" + group.toString());
     }
@@ -239,7 +228,7 @@ public class SimpleGroupService {
     Map<String, String> updates = new HashMap<>();
     updates.put(Group.CURRENT_SIZE, Long.toString(currentSize));
     updates.put(Group.LAST_UPDATED, Group.dateFormat.format(Calendar.getInstance().getTime()));
-    String result = redisCluster.hmset(groupId, updates);
+    String result = jedisCluster.hmset(groupId, updates);
     return result;
   }
 
@@ -256,10 +245,10 @@ public class SimpleGroupService {
       // Check if there is room to add 1 more
       if (group.maxSize > 0 && group.currentSize < group.maxSize) {
         String key = SetGroupMembers.getKey(groupId);
-        long numAdded = redisCluster.sadd(key, userId);
+        long numAdded = jedisCluster.sadd(key, userId);
         if (numAdded > 0) {
           // Update group with new size
-          long groupSize = redisCluster.scard(key);
+          long groupSize = jedisCluster.scard(key);
           result = this.updateCurrentSize(groupId, groupSize);
           // Add this group to user's list of groups
           this.addGroupToUser(userId, groupId);
@@ -288,10 +277,10 @@ public class SimpleGroupService {
         throw new OwnerLeaveGroupException("", "");
       }
       String key = SetGroupMembers.getKey(groupId);
-      long numRemoved = redisCluster.srem(key, userId);
+      long numRemoved = jedisCluster.srem(key, userId);
       if (numRemoved > 0) {
         // Update group with new size
-        long groupSize = redisCluster.scard(key);
+        long groupSize = jedisCluster.scard(key);
         result = this.updateCurrentSize(groupId, groupSize);
         // Remove group from list of groups this user is a member of
         this.removeGroupFromUser(userId, groupId);
@@ -310,7 +299,7 @@ public class SimpleGroupService {
    */
   public long addGroupToUser(String userId, String groupId) {
     String key = SetUserGroupMembership.getKey(userId);
-    Long numAdded = redisCluster.sadd(key, groupId);
+    Long numAdded = jedisCluster.sadd(key, groupId);
     return numAdded;
   }
 
@@ -322,7 +311,7 @@ public class SimpleGroupService {
    */
   public long removeGroupFromUser(String userId, String groupId) {
     String key = SetUserGroupMembership.getKey(userId);
-    Long numRemoved = redisCluster.srem(key, groupId);
+    Long numRemoved = jedisCluster.srem(key, groupId);
     return numRemoved;
   }
 
@@ -333,7 +322,7 @@ public class SimpleGroupService {
    */
   public Set<String> getGroupMembershipsByUser(String userId) {
     String key = SetUserGroupMembership.getKey(userId);
-    return redisCluster.smembers(key);
+    return jedisCluster.smembers(key);
   }
 
   /**
@@ -343,7 +332,7 @@ public class SimpleGroupService {
    */
   public long getCountGroupMembershipsByUser(String userId) {
     String key = SetUserGroupMembership.getKey(userId);
-    return redisCluster.scard(key);
+    return jedisCluster.scard(key);
   }
 
   /**
@@ -354,7 +343,7 @@ public class SimpleGroupService {
    */
   public boolean isMember(String userId, String groupId) {
     String key = SetGroupMembers.getKey(groupId);
-    boolean isMember = redisCluster.sismember(key, userId);
+    boolean isMember = jedisCluster.sismember(key, userId);
     return isMember;
   }
 
@@ -365,7 +354,7 @@ public class SimpleGroupService {
    */
   public Map<String, String> getAllGroupsByApp(String appName) {
     String groupIdByNameKey = GroupIdByName.getKey(appName);
-    Map<String, String> groupNameToIdMap = redisCluster.hgetAll(groupIdByNameKey);
+    Map<String, String> groupNameToIdMap = jedisCluster.hgetAll(groupIdByNameKey);
     return groupNameToIdMap;
   }
 
@@ -375,9 +364,13 @@ public class SimpleGroupService {
    * @param cursor
    * @return
    */
-  public ScanResult<Map.Entry<String, String>>  listPaginatedGroupsByApp(String appName, String cursor) {
+  public ResultWithCursor<Map.Entry<String, String>> listPaginatedGroupsByApp(String appName, String cursor) {
     String groupIdByNameKey = GroupIdByName.getKey(appName);
-    return redisCluster.hscan(groupIdByNameKey, cursor);
+    ScanResult<Map.Entry<String, String>> scanResult = jedisCluster.hscan(groupIdByNameKey, cursor);
+    ResultWithCursor<Map.Entry<String, String>> resultWithCursor = new ResultWithCursor<>();
+    resultWithCursor.results = scanResult.getResult();
+    resultWithCursor.cursor = scanResult.getStringCursor();
+    return resultWithCursor;
   }
 
 }

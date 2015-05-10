@@ -1,8 +1,6 @@
 package com.glomming.shared.sgs.test;
 
-import com.glomming.shared.sgs.bean.Group;
-import com.glomming.shared.sgs.bean.GroupAttribute;
-import com.glomming.shared.sgs.bean.GroupJoinState;
+import com.glomming.shared.sgs.bean.*;
 import com.glomming.shared.sgs.controller.RedisGroupServiceController;
 import com.glomming.shared.sgs.exception.*;
 import com.glomming.shared.sgs.service.SimpleGroupAttributeService;
@@ -21,7 +19,6 @@ import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 import org.springframework.test.context.web.WebAppConfiguration;
 import org.springframework.util.StringUtils;
 import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.ScanResult;
 
 import java.util.*;
 
@@ -38,6 +35,8 @@ public class SimpleGroupServiceTest {
 
   @Autowired
   private SimpleGroupAttributeService simpleGroupAttributeService;
+
+  Random generator = new Random();
 
 
   @Before
@@ -255,16 +254,16 @@ public class SimpleGroupServiceTest {
     Assert.assertEquals(groupSize, members.size());
     // Read back the users
     String cursor = "0";
-    ScanResult<String> results = null;
+    ResultWithCursor<String> results = null;
     Set<String> groupMembersFromDB = new HashSet<>();
     long count = 0;
     do {
       results = simpleGroupService.getPaginatedMembers(groupId, cursor);
-      List<String> groupMembers = results.getResult();
+      Collection<String> groupMembers = results.results;
       for (String groupMember : groupMembers) {
         Assert.assertTrue(members.contains(groupMember));
       }
-      cursor = results.getStringCursor();
+      cursor = results.cursor;
       count += groupMembers.size();
       groupMembersFromDB.addAll(groupMembers);
     } while (!cursor.equals("0"));
@@ -632,16 +631,19 @@ public class SimpleGroupServiceTest {
 
   }
 
+  /**
+   * Test to increment a numeric attribute represented as a string in the Redis interface
+   */
   @Test
   public void testhmset() {
     String key = "key";
     String field = "field";
     String value = "1";
-    simpleGroupService.getRedisCluster().hset(key, field, value);
-    String valueFromRedis = simpleGroupService.getRedisCluster().hget(key, field);
+    simpleGroupService.getJedisCluster().hset(key, field, value);
+    String valueFromRedis = simpleGroupService.getJedisCluster().hget(key, field);
     Assert.assertEquals(value, valueFromRedis);
-    simpleGroupService.getRedisCluster().hincrBy(key, field, 5);
-    valueFromRedis = simpleGroupService.getRedisCluster().hget(key, field);
+    simpleGroupService.getJedisCluster().hincrBy(key, field, 5);
+    valueFromRedis = simpleGroupService.getJedisCluster().hget(key, field);
     Assert.assertEquals(6, Long.valueOf(valueFromRedis).longValue());
   }
 
@@ -749,20 +751,18 @@ public class SimpleGroupServiceTest {
     String groupId = simpleGroupService.createGroup(appNameTwo, groupName, numGroups, ownerId, GroupJoinState.OPEN);
     Assert.assertFalse(StringUtils.isEmpty(groupId));
 
-
-
-    ScanResult<Map.Entry<String, String>> results = null;
+    ResultWithCursor<Map.Entry<String, String>> resultWithCursor = null;
     String cursor = "0";
     Set<String> groupMembersFromDB = new HashSet<>();
     long count = 0;
     do {
-      results = simpleGroupService.listPaginatedGroupsByApp(appNameOne, cursor);
-      List<Map.Entry<String, String>> groups = results.getResult();
+      resultWithCursor = simpleGroupService.listPaginatedGroupsByApp(appNameOne, cursor);
+      Collection<Map.Entry<String, String>> groups = resultWithCursor.results;
       for (Map.Entry<String, String> group : groups) {
         Assert.assertTrue(groupNames.contains(group.getKey()));
         groupMembersFromDB.add(group.getKey());
       }
-      cursor = results.getStringCursor();
+      cursor = resultWithCursor.cursor;
       count += groups.size();
     } while (!cursor.equals("0"));
     // Verify that all the members were read
@@ -806,8 +806,6 @@ public class SimpleGroupServiceTest {
     }
   }
 
-  Random generator = new Random();
-
   @Test
   public void testIncrementGroupAttributes() {
     Map<String, String> attributes = new HashMap<>();
@@ -839,6 +837,153 @@ public class SimpleGroupServiceTest {
     Assert.assertEquals(Long.parseLong(valueTwo) - 1, Long.parseLong(groupAttributeFromRedis.attributes.get(attributeTwo)));
   }
 
+  // Test group member attributes
+  @Test
+  public void testSetGetGroupMemberAttributes() throws Exception {
+    int groupSize = 10;
+    String appNameOne = UUID.randomUUID().toString();
+    // Create group one
+    String groupName = UUID.randomUUID().toString();
+    String ownerId = UUID.randomUUID().toString();
+    String groupId = simpleGroupService.createGroup(appNameOne, groupName, groupSize, ownerId, GroupJoinState.OPEN);
+    Assert.assertFalse(StringUtils.isEmpty(groupId));
+    // Get group by groupId
+    Group groupOneFromRedis = simpleGroupService.findGroup(groupId);
+    Assert.assertNotNull(groupOneFromRedis);
+    Assert.assertEquals(appNameOne, groupOneFromRedis.appName);
+    Assert.assertEquals(groupName, groupOneFromRedis.name);
+    Assert.assertEquals(groupSize, groupOneFromRedis.maxSize);
+    Assert.assertEquals(1, groupOneFromRedis.currentSize);
+    Assert.assertEquals(ownerId, groupOneFromRedis.ownerId);
+    Assert.assertEquals(GroupJoinState.OPEN, groupOneFromRedis.groupJoinState);
+
+    // Now create group member
+    Set<GroupMemberAttribute> groupMemberAttributeSet = new HashSet<>();
+    int numAttributes = 5;
+    for (int i = 0; i < groupSize - 1; i++) {
+      String memberId = "member_" + i;
+      simpleGroupService.addGroupMember(groupId, memberId);
+      Map<String, String> attributes = new HashMap<>();
+      for (int j = 0; j < numAttributes; j++) {
+        attributes.put(UUID.randomUUID().toString(), UUID.randomUUID().toString());
+      }
+      GroupMemberAttribute groupMemberAttribute = new GroupMemberAttribute(groupId, memberId, attributes);
+      simpleGroupAttributeService.setGroupMemberAttributes(groupMemberAttribute);
+      groupMemberAttributeSet.add(groupMemberAttribute);
+    }
+    // Now read the group member attributes
+    for (int i = 0; i < groupSize - 1; i++) {
+      String userId = "member_" + i;
+      GroupMemberAttribute groupMemberAttribute = simpleGroupAttributeService.getAllGroupMemberAttributes(groupId, userId);
+      Assert.assertTrue(groupMemberAttributeSet.contains(groupMemberAttribute));
+      groupMemberAttributeSet.remove(groupMemberAttribute);
+    }
+    Assert.assertTrue(groupMemberAttributeSet.isEmpty());
+  }
+
+  @Test
+  public void testListGroupMemberAttributes() throws Exception {
+
+    int groupSize = 150;
+    String appNameOne = UUID.randomUUID().toString();
+    // Create group one
+    String groupName = UUID.randomUUID().toString();
+    String ownerId = UUID.randomUUID().toString();
+    String groupId = simpleGroupService.createGroup(appNameOne, groupName, groupSize, ownerId, GroupJoinState.OPEN);
+    Assert.assertFalse(StringUtils.isEmpty(groupId));
+    // Get group by groupId
+    Group groupOneFromRedis = simpleGroupService.findGroup(groupId);
+    Assert.assertNotNull(groupOneFromRedis);
+    Assert.assertEquals(appNameOne, groupOneFromRedis.appName);
+    Assert.assertEquals(groupName, groupOneFromRedis.name);
+    Assert.assertEquals(groupSize, groupOneFromRedis.maxSize);
+    Assert.assertEquals(1, groupOneFromRedis.currentSize);
+    Assert.assertEquals(ownerId, groupOneFromRedis.ownerId);
+    Assert.assertEquals(GroupJoinState.OPEN, groupOneFromRedis.groupJoinState);
+
+    // Now create group members
+    Set<GroupMemberAttribute> groupMemberAttributeSet = new HashSet<>();
+    int numAttributes = 5;
+    for (int i = 0; i < groupSize - 1; i++) {
+      String memberId = "member_" + i;
+      simpleGroupService.addGroupMember(groupId, memberId);
+      Map<String, String> attributes = new HashMap<>();
+      for (int j = 0; j < numAttributes; j++) {
+        attributes.put(UUID.randomUUID().toString(), UUID.randomUUID().toString());
+      }
+      GroupMemberAttribute groupMemberAttribute = new GroupMemberAttribute(groupId, memberId, attributes);
+      simpleGroupAttributeService.setGroupMemberAttributes(groupMemberAttribute);
+      groupMemberAttributeSet.add(groupMemberAttribute);
+    }
+
+    // Now read the group member attributes
+    ResultWithCursor<GroupMemberAttribute> resultWithCursor = null;
+    String cursor = "0";
+    Set<GroupMemberAttribute> groupMemberAttributesFromDBSet = new HashSet<>();
+    long count = 0;
+    do {
+      resultWithCursor = simpleGroupAttributeService.listAttributesForGroupMembers(groupId, cursor);
+      Collection<GroupMemberAttribute> groupMemberAttributes = resultWithCursor.results;
+      for (GroupMemberAttribute groupMemberAttribute : groupMemberAttributes) {
+        Assert.assertTrue(groupMemberAttributeSet.contains(groupMemberAttribute));
+      }
+      cursor = resultWithCursor.cursor;
+      count += groupMemberAttributes.size();
+      groupMemberAttributesFromDBSet.addAll(groupMemberAttributes);
+    } while (!cursor.equals("0"));
+    // Verify that all the members were read
+    Assert.assertEquals(groupSize - 1, count);
+    Assert.assertEquals(groupMemberAttributeSet, groupMemberAttributesFromDBSet);
+  }
+
+  @Test
+  public void testIncrementGroupMemberAttrbute() throws Exception{
+    //Long incrementGroupMemberAttribute(String groupId, String userId, String attribute, long value)
+
+    int groupSize = 150;
+    String appNameOne = UUID.randomUUID().toString();
+    // Create group one
+    String groupName = UUID.randomUUID().toString();
+    String ownerId = UUID.randomUUID().toString();
+    String groupId = simpleGroupService.createGroup(appNameOne, groupName, groupSize, ownerId, GroupJoinState.OPEN);
+    Assert.assertFalse(StringUtils.isEmpty(groupId));
+    // Get group by groupId
+    Group groupOneFromRedis = simpleGroupService.findGroup(groupId);
+    Assert.assertNotNull(groupOneFromRedis);
+    Assert.assertEquals(appNameOne, groupOneFromRedis.appName);
+    Assert.assertEquals(groupName, groupOneFromRedis.name);
+    Assert.assertEquals(groupSize, groupOneFromRedis.maxSize);
+    Assert.assertEquals(1, groupOneFromRedis.currentSize);
+    Assert.assertEquals(ownerId, groupOneFromRedis.ownerId);
+    Assert.assertEquals(GroupJoinState.OPEN, groupOneFromRedis.groupJoinState);
+
+    // Now create group members
+    String memberId = UUID.randomUUID().toString();
+    simpleGroupService.addGroupMember(groupId, memberId);
+    Map<String, String> attributes = new HashMap<>();
+    String attributeOne = "one", attributeTwo = "two", attributeThree = "three";
+    int valueOne = generator.nextInt();
+    int valueTwo = generator.nextInt();
+    int valueThree = generator.nextInt();
+    attributes.put(attributeOne, Integer.toString(valueOne));
+    attributes.put(attributeTwo, Integer.toString(valueTwo));
+    attributes.put(attributeThree, Integer.toString(valueThree));
+
+    GroupMemberAttribute groupMemberAttribute = new GroupMemberAttribute(groupId, memberId, attributes);
+    simpleGroupAttributeService.setGroupMemberAttributes(groupMemberAttribute);
+
+    // Increment each of the attributes
+    Long olderValueOne = simpleGroupAttributeService.incrementGroupMemberAttribute(groupId, memberId, attributeOne, 1L);
+    Assert.assertEquals(valueOne + 1, olderValueOne.intValue());
+    Long olderValueTwo = simpleGroupAttributeService.incrementGroupMemberAttribute(groupId, memberId, attributeTwo, -1L);
+    Assert.assertEquals(valueTwo - 1, olderValueTwo.intValue());
+
+    // Read back and verify
+    GroupMemberAttribute groupMemberAttributeFromDB = simpleGroupAttributeService.getAllGroupMemberAttributes(groupId, memberId);
+    Assert.assertEquals(groupMemberAttributeFromDB.attributes.get(attributeOne), Integer.toString(valueOne + 1));
+    Assert.assertEquals(groupMemberAttributeFromDB.attributes.get(attributeTwo), Integer.toString(valueTwo - 1));
+    Assert.assertEquals(groupMemberAttributeFromDB.attributes.get(attributeThree), Integer.toString(valueThree));
+  }
 
   /**
    * Delete all the keys from all the nodes, run as the last test
@@ -846,7 +991,7 @@ public class SimpleGroupServiceTest {
   @Test
   public void zdeleteAll() {
 
-    Map<String, JedisPool> clusterNodes = simpleGroupService.getRedisCluster().getClusterNodes();
+    Map<String, JedisPool> clusterNodes = simpleGroupService.getJedisCluster().getClusterNodes();
     try {
       for (Map.Entry<String, JedisPool> node : clusterNodes.entrySet()) {
         node.getValue().getResource().flushAll();
