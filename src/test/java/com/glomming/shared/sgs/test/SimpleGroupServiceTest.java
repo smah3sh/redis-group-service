@@ -3,6 +3,7 @@ package com.glomming.shared.sgs.test;
 import com.glomming.shared.sgs.bean.*;
 import com.glomming.shared.sgs.controller.RedisGroupServiceController;
 import com.glomming.shared.sgs.exception.*;
+import com.glomming.shared.sgs.service.GroupInvitationService;
 import com.glomming.shared.sgs.service.SimpleGroupAttributeService;
 import com.glomming.shared.sgs.service.SimpleGroupService;
 import org.junit.After;
@@ -35,6 +36,9 @@ public class SimpleGroupServiceTest {
 
   @Autowired
   private SimpleGroupAttributeService simpleGroupAttributeService;
+
+  @Autowired
+  private GroupInvitationService groupInvitationService;
 
   Random generator = new Random();
 
@@ -985,9 +989,390 @@ public class SimpleGroupServiceTest {
     Assert.assertEquals(groupMemberAttributeFromDB.attributes.get(attributeThree), Integer.toString(valueThree));
   }
 
+
+  // Test group invitation service
+
   /**
-   * Delete all the keys from all the nodes, run as the last test
+   * Test sending group invitation
+   * Test sending duplicate invitations for inviter
+   * Test sending duplicate invitations for invitee
+   * Test count of invitations sent for inviter
+   * Test count of invitations received for invitee
    */
+  @Test
+  public void testInviteUserToGroup() throws Exception {
+    int groupSize = 10;
+    String appNameOne = UUID.randomUUID().toString();
+    // Create group one
+    String groupName = UUID.randomUUID().toString();
+    String ownerId = UUID.randomUUID().toString();
+    String groupId = simpleGroupService.createGroup(appNameOne, groupName, groupSize, ownerId, GroupJoinState.OPEN);
+    Assert.assertFalse(StringUtils.isEmpty(groupId));
+    // Get group by groupId
+    Group groupOneFromRedis = simpleGroupService.findGroup(groupId);
+    Assert.assertNotNull(groupOneFromRedis);
+    Assert.assertEquals(appNameOne, groupOneFromRedis.appName);
+    Assert.assertEquals(groupName, groupOneFromRedis.name);
+    Assert.assertEquals(groupSize, groupOneFromRedis.maxSize);
+    Assert.assertEquals(1, groupOneFromRedis.currentSize);
+    Assert.assertEquals(ownerId, groupOneFromRedis.ownerId);
+    Assert.assertEquals(GroupJoinState.OPEN, groupOneFromRedis.groupJoinState);
+
+    // Setup invitations
+    String inviterId = UUID.randomUUID().toString();
+    String anotherInviterId = UUID.randomUUID().toString();
+    String inviteeId = UUID.randomUUID().toString();
+
+    GroupInvitation groupInvitation = groupInvitationService.inviteUserToGroup(inviterId, inviteeId, groupId);
+    Assert.assertNotNull(groupInvitation);
+    Assert.assertEquals(groupId, groupInvitation.groupId);
+    Assert.assertEquals(inviterId, groupInvitation.inviterId);
+    Assert.assertEquals(inviteeId, groupInvitation.inviteeId);
+    Assert.assertFalse(StringUtils.isEmpty(groupInvitation.invitationId));
+
+    // Send duplicate for inviter
+    try {
+      groupInvitationService.inviteUserToGroup(inviterId, inviteeId, groupId);
+    } catch (DuplicateInvitationException due) {
+      // ignore
+    }
+
+    // Send duplicate for invitee
+    try {
+      groupInvitationService.inviteUserToGroup(anotherInviterId, inviteeId, groupId);
+    } catch (DuplicateInvitationException due) {
+      // ignore
+    }
+
+    // Get list of invitations sent for inviter
+    List<GroupInvitation> listInvitationsSent = groupInvitationService.listGroupInvitesSent(inviterId);
+    Assert.assertEquals(1, listInvitationsSent.size());
+    Assert.assertEquals(groupInvitation, listInvitationsSent.get(0));
+
+    // Assert no outstanding invitations sent for invitee
+    listInvitationsSent = groupInvitationService.listGroupInvitesSent(inviteeId);
+    Assert.assertTrue(listInvitationsSent.isEmpty());
+
+    // Assert no outstanding invitations sent for anotherInviter
+    listInvitationsSent = groupInvitationService.listGroupInvitesSent(anotherInviterId);
+    Assert.assertTrue(listInvitationsSent.isEmpty());
+
+    // Get list of invitations received for invitee
+    List<GroupInvitation> listInvitationsReceived = groupInvitationService.listGroupInvitesReceived(inviteeId);
+    Assert.assertEquals(1, listInvitationsReceived.size());
+    Assert.assertEquals(groupInvitation, listInvitationsReceived.get(0));
+
+    // Assert no outstanding invitations received for inviter
+    listInvitationsReceived = groupInvitationService.listGroupInvitesReceived(inviterId);
+    Assert.assertTrue(listInvitationsReceived.isEmpty());
+
+    // Assert no outstanding invitations received for anotherInviter
+    listInvitationsReceived = groupInvitationService.listGroupInvitesReceived(anotherInviterId);
+    Assert.assertTrue(listInvitationsReceived.isEmpty());
+
+    // Assert no outstanding invitations sent for anotherInviter
+    listInvitationsSent = groupInvitationService.listGroupInvitesSent(anotherInviterId);
+    Assert.assertTrue(listInvitationsSent.isEmpty());
+  }
+
+  /**
+   * Invite user to invalid group
+   * @throws Exception
+   */
+  @Test
+  public void testInviteUserToInvalidGroup() throws Exception {
+    // Setup invitations
+    String inviterId = UUID.randomUUID().toString();
+    String inviteeId = UUID.randomUUID().toString();
+    String groupId = UUID.randomUUID().toString();
+
+    try {
+      groupInvitationService.inviteUserToGroup(inviterId, inviteeId, groupId);
+    } catch (InvalidGroupException e) {
+      e.printStackTrace();
+    }
+  }
+
+  @Test
+  public void testAcceptInviteToGroup() throws Exception {
+    int groupSize = 10;
+    String appNameOne = UUID.randomUUID().toString();
+    // Create group one
+    String groupName = UUID.randomUUID().toString();
+    String ownerId = UUID.randomUUID().toString();
+    String groupId = simpleGroupService.createGroup(appNameOne, groupName, groupSize, ownerId, GroupJoinState.OPEN);
+    Assert.assertFalse(StringUtils.isEmpty(groupId));
+    // Get group by groupId
+    Group groupOneFromRedis = simpleGroupService.findGroup(groupId);
+    Assert.assertNotNull(groupOneFromRedis);
+    Assert.assertEquals(appNameOne, groupOneFromRedis.appName);
+    Assert.assertEquals(groupName, groupOneFromRedis.name);
+    Assert.assertEquals(groupSize, groupOneFromRedis.maxSize);
+    Assert.assertEquals(1, groupOneFromRedis.currentSize);
+    Assert.assertEquals(ownerId, groupOneFromRedis.ownerId);
+    Assert.assertEquals(GroupJoinState.OPEN, groupOneFromRedis.groupJoinState);
+
+    // Send group invitation
+    String inviterId = UUID.randomUUID().toString();
+    String inviteeId = UUID.randomUUID().toString();
+
+    GroupInvitation groupInvitation = groupInvitationService.inviteUserToGroup(inviterId, inviteeId, groupId);
+    Assert.assertNotNull(groupInvitation);
+    Assert.assertEquals(groupId, groupInvitation.groupId);
+    Assert.assertEquals(inviterId, groupInvitation.inviterId);
+    Assert.assertEquals(inviteeId, groupInvitation.inviteeId);
+    Assert.assertFalse(StringUtils.isEmpty(groupInvitation.invitationId));
+
+    // Get list of invitations sent for inviter
+    List<GroupInvitation> listInvitationsSent = groupInvitationService.listGroupInvitesSent(inviterId);
+    Assert.assertEquals(1, listInvitationsSent.size());
+    Assert.assertEquals(groupInvitation, listInvitationsSent.get(0));
+
+    // Assert no outstanding invitations sent for invitee
+    listInvitationsSent = groupInvitationService.listGroupInvitesSent(inviteeId);
+    Assert.assertTrue(listInvitationsSent.isEmpty());
+
+    // Get list of invitations received for invitee
+    List<GroupInvitation> listInvitationsReceived = groupInvitationService.listGroupInvitesReceived(inviteeId);
+    Assert.assertEquals(1, listInvitationsReceived.size());
+    Assert.assertEquals(groupInvitation, listInvitationsReceived.get(0));
+
+    // Assert no outstanding invitations received for inviter
+    listInvitationsReceived = groupInvitationService.listGroupInvitesReceived(inviterId);
+    Assert.assertTrue(listInvitationsReceived.isEmpty());
+
+    // Accept group invitation
+    String result = groupInvitationService.acceptInviteToGroup(groupInvitation);
+    Assert.assertEquals(SimpleGroupService.RedisOk, result);
+
+    // Confirm group membership
+    Set<String> setGroups = simpleGroupService.getGroupMembershipsByUser(inviteeId);
+    Assert.assertEquals(1, setGroups.size());
+    Assert.assertTrue(setGroups.contains(groupId));
+
+    // Assert no outstanding invitations for inviter and invitee
+    // Get list of invitations sent for inviter
+    listInvitationsSent = groupInvitationService.listGroupInvitesSent(inviterId);
+    Assert.assertTrue(listInvitationsSent.isEmpty());
+
+    // Assert no outstanding invitations sent for invitee
+    listInvitationsSent = groupInvitationService.listGroupInvitesSent(inviteeId);
+    Assert.assertTrue(listInvitationsSent.isEmpty());
+
+    // Get list of invitations received for invitee
+    listInvitationsReceived = groupInvitationService.listGroupInvitesReceived(inviteeId);
+    Assert.assertTrue(listInvitationsReceived.isEmpty());
+
+    // Assert no outstanding invitations received for inviter
+    listInvitationsReceived = groupInvitationService.listGroupInvitesReceived(inviterId);
+    Assert.assertTrue(listInvitationsReceived.isEmpty());
+  }
+
+
+  @Test
+  public void testRejectInviteToGroup() throws Exception {
+    int groupSize = 10;
+    String appNameOne = UUID.randomUUID().toString();
+    // Create group one
+    String groupName = UUID.randomUUID().toString();
+    String ownerId = UUID.randomUUID().toString();
+    String groupId = simpleGroupService.createGroup(appNameOne, groupName, groupSize, ownerId, GroupJoinState.OPEN);
+    Assert.assertFalse(StringUtils.isEmpty(groupId));
+    // Get group by groupId
+    Group groupOneFromRedis = simpleGroupService.findGroup(groupId);
+    Assert.assertNotNull(groupOneFromRedis);
+    Assert.assertEquals(appNameOne, groupOneFromRedis.appName);
+    Assert.assertEquals(groupName, groupOneFromRedis.name);
+    Assert.assertEquals(groupSize, groupOneFromRedis.maxSize);
+    Assert.assertEquals(1, groupOneFromRedis.currentSize);
+    Assert.assertEquals(ownerId, groupOneFromRedis.ownerId);
+    Assert.assertEquals(GroupJoinState.OPEN, groupOneFromRedis.groupJoinState);
+
+    // Send group invitation
+    String inviterId = UUID.randomUUID().toString();
+    String inviteeId = UUID.randomUUID().toString();
+
+    GroupInvitation groupInvitation = groupInvitationService.inviteUserToGroup(inviterId, inviteeId, groupId);
+    Assert.assertNotNull(groupInvitation);
+    Assert.assertEquals(groupId, groupInvitation.groupId);
+    Assert.assertEquals(inviterId, groupInvitation.inviterId);
+    Assert.assertEquals(inviteeId, groupInvitation.inviteeId);
+    Assert.assertFalse(StringUtils.isEmpty(groupInvitation.invitationId));
+
+    // Get list of invitations sent for inviter
+    List<GroupInvitation> listInvitationsSent = groupInvitationService.listGroupInvitesSent(inviterId);
+    Assert.assertEquals(1, listInvitationsSent.size());
+    Assert.assertEquals(groupInvitation, listInvitationsSent.get(0));
+
+    // Assert no outstanding invitations sent for invitee
+    listInvitationsSent = groupInvitationService.listGroupInvitesSent(inviteeId);
+    Assert.assertTrue(listInvitationsSent.isEmpty());
+
+    // Get list of invitations received for invitee
+    List<GroupInvitation> listInvitationsReceived = groupInvitationService.listGroupInvitesReceived(inviteeId);
+    Assert.assertEquals(1, listInvitationsReceived.size());
+    Assert.assertEquals(groupInvitation, listInvitationsReceived.get(0));
+
+    // Assert no outstanding invitations received for inviter
+    listInvitationsReceived = groupInvitationService.listGroupInvitesReceived(inviterId);
+    Assert.assertTrue(listInvitationsReceived.isEmpty());
+
+    // Accept group invitation
+    groupInvitationService.rejectInviteToGroup(groupInvitation);
+
+    // Confirm no group membership
+    Set<String> setGroups = simpleGroupService.getGroupMembershipsByUser(inviteeId);
+    Assert.assertTrue(setGroups.isEmpty());
+
+    // Assert no outstanding invitations for inviter and invitee
+    // Get list of invitations sent for inviter
+    listInvitationsSent = groupInvitationService.listGroupInvitesSent(inviterId);
+    Assert.assertTrue(listInvitationsSent.isEmpty());
+
+    // Assert no outstanding invitations sent for invitee
+    listInvitationsSent = groupInvitationService.listGroupInvitesSent(inviteeId);
+    Assert.assertTrue(listInvitationsSent.isEmpty());
+
+    // Get list of invitations received for invitee
+    listInvitationsReceived = groupInvitationService.listGroupInvitesReceived(inviteeId);
+    Assert.assertTrue(listInvitationsReceived.isEmpty());
+
+    // Assert no outstanding invitations received for inviter
+    listInvitationsReceived = groupInvitationService.listGroupInvitesReceived(inviterId);
+    Assert.assertTrue(listInvitationsReceived.isEmpty());
+  }
+
+  @Test
+  public void testListGroupInvitesReceived() throws Exception {
+    int groupSize = 10;
+    String appNameOne = UUID.randomUUID().toString();
+    // Create group one
+    String groupNameOne = UUID.randomUUID().toString();
+    String ownerId = UUID.randomUUID().toString();
+    String groupIdOne = simpleGroupService.createGroup(appNameOne, groupNameOne, groupSize, ownerId, GroupJoinState.OPEN);
+    Assert.assertFalse(StringUtils.isEmpty(groupIdOne));
+
+    // Get group by groupId
+    Group groupOneFromRedis = simpleGroupService.findGroup(groupIdOne);
+    Assert.assertNotNull(groupOneFromRedis);
+    Assert.assertEquals(appNameOne, groupOneFromRedis.appName);
+    Assert.assertEquals(groupNameOne, groupOneFromRedis.name);
+    Assert.assertEquals(groupSize, groupOneFromRedis.maxSize);
+    Assert.assertEquals(1, groupOneFromRedis.currentSize);
+    Assert.assertEquals(ownerId, groupOneFromRedis.ownerId);
+    Assert.assertEquals(GroupJoinState.OPEN, groupOneFromRedis.groupJoinState);
+
+    String groupNameTwo = UUID.randomUUID().toString();
+    String groupIdTwo = simpleGroupService.createGroup(appNameOne, groupNameTwo, groupSize, ownerId, GroupJoinState.OPEN);
+    Assert.assertFalse(StringUtils.isEmpty(groupIdTwo));
+
+    // Get group by groupId
+    Group groupTwoFromRedis = simpleGroupService.findGroup(groupIdTwo);
+    Assert.assertNotNull(groupTwoFromRedis);
+    Assert.assertEquals(appNameOne, groupTwoFromRedis.appName);
+    Assert.assertEquals(groupNameTwo, groupTwoFromRedis.name);
+    Assert.assertEquals(groupSize, groupTwoFromRedis.maxSize);
+    Assert.assertEquals(1, groupTwoFromRedis.currentSize);
+    Assert.assertEquals(ownerId, groupTwoFromRedis.ownerId);
+    Assert.assertEquals(GroupJoinState.OPEN, groupTwoFromRedis.groupJoinState);
+
+    // Invite user to groups one and two
+    String inviteeOneId = UUID.randomUUID().toString();
+    String inviteeTwoId = UUID.randomUUID().toString();
+    String inviteeThreeId = UUID.randomUUID().toString();
+
+    // Invite inviteeOne to both groups
+    GroupInvitation groupInvitationOne = groupInvitationService.inviteUserToGroup(ownerId, inviteeOneId, groupIdOne);
+    Assert.assertNotNull(groupInvitationOne);
+
+    GroupInvitation groupInvitationTwo = groupInvitationService.inviteUserToGroup(ownerId, inviteeOneId, groupIdTwo);
+    Assert.assertNotNull(groupInvitationTwo);
+
+    // Invite inviteeTwo to one group only
+    GroupInvitation groupInvitationThree = groupInvitationService.inviteUserToGroup(ownerId, inviteeTwoId, groupIdOne);
+    Assert.assertNotNull(groupInvitationThree);
+
+    // Verify invitations received for inviteeOne
+    List<GroupInvitation> listInvitationsForInviteeOne = groupInvitationService.listGroupInvitesReceived(inviteeOneId);
+    Assert.assertEquals(2, listInvitationsForInviteeOne.size());
+    Set<GroupInvitation> setGroupInvitations = new HashSet<>();
+    setGroupInvitations.addAll(listInvitationsForInviteeOne);
+    Assert.assertTrue(setGroupInvitations.contains(groupInvitationOne));
+    Assert.assertTrue(setGroupInvitations.contains(groupInvitationTwo));
+
+    // Verify invitations received for inviteeTwo
+    List<GroupInvitation> listInvitationsForInviteeTwo = groupInvitationService.listGroupInvitesReceived(inviteeTwoId);
+    Assert.assertEquals(1, listInvitationsForInviteeTwo.size());
+    Assert.assertEquals(groupInvitationThree, listInvitationsForInviteeTwo.get(0));
+
+    // Verify invitations received for inviteeThree
+    List<GroupInvitation> listInvitationsForInviteeThree = groupInvitationService.listGroupInvitesReceived(inviteeThreeId);
+    Assert.assertTrue(listInvitationsForInviteeThree.isEmpty());
+  }
+
+  @Test
+  public void testListGroupInvitesSent() throws Exception {
+    int groupSize = 10;
+    String appNameOne = UUID.randomUUID().toString();
+    // Create group one
+    String groupNameOne = UUID.randomUUID().toString();
+    String ownerId = UUID.randomUUID().toString();
+    String groupIdOne = simpleGroupService.createGroup(appNameOne, groupNameOne, groupSize, ownerId, GroupJoinState.OPEN);
+    Assert.assertFalse(StringUtils.isEmpty(groupIdOne));
+
+    // Get group by groupId
+    Group groupOneFromRedis = simpleGroupService.findGroup(groupIdOne);
+    Assert.assertNotNull(groupOneFromRedis);
+    Assert.assertEquals(appNameOne, groupOneFromRedis.appName);
+    Assert.assertEquals(groupNameOne, groupOneFromRedis.name);
+    Assert.assertEquals(groupSize, groupOneFromRedis.maxSize);
+    Assert.assertEquals(1, groupOneFromRedis.currentSize);
+    Assert.assertEquals(ownerId, groupOneFromRedis.ownerId);
+    Assert.assertEquals(GroupJoinState.OPEN, groupOneFromRedis.groupJoinState);
+
+    String groupNameTwo = UUID.randomUUID().toString();
+    String groupIdTwo = simpleGroupService.createGroup(appNameOne, groupNameTwo, groupSize, ownerId, GroupJoinState.OPEN);
+    Assert.assertFalse(StringUtils.isEmpty(groupIdTwo));
+
+    // Get group by groupId
+    Group groupTwoFromRedis = simpleGroupService.findGroup(groupIdTwo);
+    Assert.assertNotNull(groupTwoFromRedis);
+    Assert.assertEquals(appNameOne, groupTwoFromRedis.appName);
+    Assert.assertEquals(groupNameTwo, groupTwoFromRedis.name);
+    Assert.assertEquals(groupSize, groupTwoFromRedis.maxSize);
+    Assert.assertEquals(1, groupTwoFromRedis.currentSize);
+    Assert.assertEquals(ownerId, groupTwoFromRedis.ownerId);
+    Assert.assertEquals(GroupJoinState.OPEN, groupTwoFromRedis.groupJoinState);
+
+    // Invite user to groups one and two
+    String inviteeOneId = UUID.randomUUID().toString();
+    String inviteeTwoId = UUID.randomUUID().toString();
+
+    // Invite inviteeOne to both groups
+    GroupInvitation groupInvitationOne = groupInvitationService.inviteUserToGroup(ownerId, inviteeOneId, groupIdOne);
+    Assert.assertNotNull(groupInvitationOne);
+
+    GroupInvitation groupInvitationTwo = groupInvitationService.inviteUserToGroup(ownerId, inviteeOneId, groupIdTwo);
+    Assert.assertNotNull(groupInvitationTwo);
+
+    // Invite inviteeTwo to one group only
+    GroupInvitation groupInvitationThree = groupInvitationService.inviteUserToGroup(ownerId, inviteeTwoId, groupIdOne);
+    Assert.assertNotNull(groupInvitationThree);
+
+    // Verify invitations received for inviteeOne
+    List<GroupInvitation> listInvitations = groupInvitationService.listGroupInvitesSent(ownerId);
+    Assert.assertEquals(3, listInvitations.size());
+    Set<GroupInvitation> setGroupInvitations = new HashSet<>();
+    setGroupInvitations.addAll(listInvitations);
+    Assert.assertTrue(setGroupInvitations.contains(groupInvitationOne));
+    Assert.assertTrue(setGroupInvitations.contains(groupInvitationTwo));
+    Assert.assertTrue(setGroupInvitations.contains(groupInvitationThree));
+  }
+
+
+  /**
+       * Delete all the keys from all the nodes, run as the last test
+       */
   @Test
   public void zdeleteAll() {
 
