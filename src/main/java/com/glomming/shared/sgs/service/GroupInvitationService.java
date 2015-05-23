@@ -5,6 +5,7 @@ import com.glomming.shared.sgs.bean.GroupInvitation;
 import com.glomming.shared.sgs.exception.DuplicateInvitationException;
 import com.glomming.shared.sgs.exception.GroupMembershipExceededException;
 import com.glomming.shared.sgs.exception.InvalidGroupException;
+import com.glomming.shared.sgs.exception.InvalidGroupOperationException;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,14 +47,23 @@ public class GroupInvitationService extends BaseGroupService {
 
 
   /**
-   * Invite user only iff he does not have outstanding invitation for this group from anyone else
+   * Invite user only iff he does not have outstanding invitation for this group and is not already member
    * @param inviterId
    * @param inviteeId
    */
-  public GroupInvitation inviteUserToGroup(String inviterId, String inviteeId, String groupId) throws DuplicateInvitationException, InvalidGroupException {
+  public GroupInvitation inviteUserToGroup(String inviterId, String inviteeId, String groupId) throws DuplicateInvitationException, InvalidGroupException, InvalidGroupOperationException {
 
-    // Check if group is valid
+    // Check if group is valid, throws exception if not
     Group group = simpleGroupService.findGroup(groupId);
+    // Check if user is member of this group
+    boolean isMember = simpleGroupService.isMember(inviteeId, group.id);
+    if (isMember) {
+      StringBuilder sb = new StringBuilder();
+      sb.append("User ");
+      sb.append(inviteeId);
+      sb.append(" already member of " + group.toString());
+      throw new InvalidGroupOperationException("", sb.toString());
+    }
     // Check if user already has outstanding invitation for this group
     String invitationId = UUID.randomUUID().toString();
     String message = null;
@@ -165,4 +175,5 @@ public class GroupInvitationService extends BaseGroupService {
     // delete invite for this group
     return jedisCluster.hdel(key, GroupInvitation.createInvitationSentFieldName(groupId, inviteeId));
   }
+
 }

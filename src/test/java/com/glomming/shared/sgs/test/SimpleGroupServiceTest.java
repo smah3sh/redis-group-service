@@ -942,7 +942,6 @@ public class SimpleGroupServiceTest {
 
   @Test
   public void testIncrementGroupMemberAttrbute() throws Exception{
-    //Long incrementGroupMemberAttribute(String groupId, String userId, String attribute, long value)
 
     int groupSize = 150;
     String appNameOne = UUID.randomUUID().toString();
@@ -1075,10 +1074,44 @@ public class SimpleGroupServiceTest {
     Assert.assertTrue(listInvitationsSent.isEmpty());
   }
 
-  /**
-   * Invite user to invalid group
-   * @throws Exception
-   */
+
+  // Invite a user who is already a member
+  @Test
+  public void testMemberToGroup() throws Exception {
+    int groupSize = 10;
+    String appNameOne = UUID.randomUUID().toString();
+    // Create group one
+    String groupName = UUID.randomUUID().toString();
+    String ownerId = UUID.randomUUID().toString();
+    String groupId = simpleGroupService.createGroup(appNameOne, groupName, groupSize, ownerId, GroupJoinState.OPEN);
+    Assert.assertFalse(StringUtils.isEmpty(groupId));
+    // Get group by groupId
+    Group groupOneFromRedis = simpleGroupService.findGroup(groupId);
+    Assert.assertNotNull(groupOneFromRedis);
+    Assert.assertEquals(appNameOne, groupOneFromRedis.appName);
+    Assert.assertEquals(groupName, groupOneFromRedis.name);
+    Assert.assertEquals(groupSize, groupOneFromRedis.maxSize);
+    Assert.assertEquals(1, groupOneFromRedis.currentSize);
+    Assert.assertEquals(ownerId, groupOneFromRedis.ownerId);
+    Assert.assertEquals(GroupJoinState.OPEN, groupOneFromRedis.groupJoinState);
+
+    String userId = UUID.randomUUID().toString();
+    // Add userId to group
+    simpleGroupService.addGroupMember(groupId, userId);
+    Set<String> members = simpleGroupService.getMembersByGroup(groupId);
+    Assert.assertTrue(members.size() == 2);
+    Assert.assertTrue(members.contains(ownerId));
+    Assert.assertTrue(members.contains(userId));
+
+    // Setup invitations
+    try {
+      groupInvitationService.inviteUserToGroup(ownerId, userId, groupId);
+    } catch (InvalidGroupOperationException ignore) {}
+  }
+    /**
+     * Invite user to invalid group
+     * @throws Exception
+     */
   @Test
   public void testInviteUserToInvalidGroup() throws Exception {
     // Setup invitations
