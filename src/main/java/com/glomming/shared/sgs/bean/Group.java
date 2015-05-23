@@ -83,6 +83,7 @@ public class Group {
     return groupId;
   }
 
+  @Override
   public String toString() {
     return ToStringBuilder.reflectionToString(this);
   }

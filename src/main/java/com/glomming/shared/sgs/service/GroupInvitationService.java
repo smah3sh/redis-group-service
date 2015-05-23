@@ -51,10 +51,16 @@ public class GroupInvitationService extends BaseGroupService {
    * @param inviterId
    * @param inviteeId
    */
-  public GroupInvitation inviteUserToGroup(String inviterId, String inviteeId, String groupId) throws DuplicateInvitationException, InvalidGroupException, InvalidGroupOperationException {
+  public GroupInvitation inviteUserToGroup(String inviterId, String inviteeId, String groupId) throws DuplicateInvitationException, InvalidGroupException, InvalidGroupOperationException, GroupMembershipExceededException {
 
     // Check if group is valid, throws exception if not
     Group group = simpleGroupService.findGroup(groupId);
+
+    // Check membership count
+    if (group.currentSize >= group.maxSize) {
+      throw new GroupMembershipExceededException("", group.toString());
+    }
+
     // Check if user is member of this group
     boolean isMember = simpleGroupService.isMember(inviteeId, group.id);
     if (isMember) {
@@ -64,6 +70,7 @@ public class GroupInvitationService extends BaseGroupService {
       sb.append(" already member of " + group.toString());
       throw new InvalidGroupOperationException("", sb.toString());
     }
+
     // Check if user already has outstanding invitation for this group
     String invitationId = UUID.randomUUID().toString();
     String message = null;
