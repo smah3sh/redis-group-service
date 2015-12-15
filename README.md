@@ -12,3 +12,4 @@ b. Deleteing a member
 3. Group invitation
 a. Invite another user to a group
 b. Ask to join a group
+4. Store group and group member attributes
